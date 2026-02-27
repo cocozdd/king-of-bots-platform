@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "axios": "^1.13.2",
+    "oh-my-opencode-darwin-arm64": "^3.1.1"
+  }
+}

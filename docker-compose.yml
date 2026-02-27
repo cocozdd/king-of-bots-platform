@@ -1,0 +1,165 @@
+services:
+  # MySQL 数据库
+  mysql:
+    image: mysql:8.0
+    container_name: kob-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: "123456"
+      MYSQL_DATABASE: kob
+      MYSQL_CHARACTER_SET_SERVER: utf8mb4
+      MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
+    ports:
+      - "13306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backendcloud/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kob-network
+
+  # PostgreSQL + pgvector (AI向量搜索)
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: kob-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cocodzh
+      POSTGRES_PASSWORD: "123"
+      POSTGRES_DB: kob_ai
+    ports:
+      - "15432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backendcloud/db/pgvector-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cocodzh -d kob_ai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kob-network
+
+  # Redis (可选，用于缓存)
+  redis:
+    image: redis:7-alpine
+    container_name: kob-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kob-network
+
+  # 后端主服务 (port 3000)
+  backend:
+    build:
+      context: ./backendcloud
+      dockerfile: Dockerfile
+      args:
+        MODULE: backend
+    container_name: kob-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/kob?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: "123456"
+      PGVECTOR_HOST: postgres
+      PGVECTOR_PORT: 5432
+      PGVECTOR_DATABASE: kob_ai
+      PGVECTOR_USERNAME: cocodzh
+      PGVECTOR_PASSWORD: "123"
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-sk-631118100c8542ba88af8d3ba1c302bd}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-sk-8f93d7131f1243a8bfc681b778a10ac8}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - kob-network
+
+  # 匹配系统服务 (port 3001)
+  matchingsystem:
+    build:
+      context: ./backendcloud
+      dockerfile: Dockerfile
+      args:
+        MODULE: matchingsystem
+    container_name: kob-matching
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - kob-network
+
+  # Bot运行系统 (port 3002)
+  botrunningsystem:
+    build:
+      context: ./backendcloud
+      dockerfile: Dockerfile
+      args:
+        MODULE: botrunningsystem
+    container_name: kob-botrunning
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      backend:
+        condition: service_healthy
+    # Bot执行需要更多内存
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    networks:
+      - kob-network
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: kob-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    networks:
+      - kob-network
+
+volumes:
+  mysql_data:
+  postgres_data:
+  redis_data:
+
+networks:
+  kob-network:
+    driver: bridge

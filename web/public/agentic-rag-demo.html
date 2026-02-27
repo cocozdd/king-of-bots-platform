@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic RAG 演示 - KOB</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .step-card { transition: all 0.3s ease; }
+        .step-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.15); }
+        .action-badge { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+        .thinking-dot { animation: bounce 1.4s infinite ease-in-out; }
+        .thinking-dot:nth-child(1) { animation-delay: -0.32s; }
+        .thinking-dot:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+        .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .code-block { font-family: 'Monaco', 'Menlo', monospace; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Header -->
+    <div class="gradient-bg text-white py-8 px-4">
+        <div class="max-w-5xl mx-auto">
+            <h1 class="text-3xl font-bold mb-2">🤖 Agentic RAG 演示</h1>
+            <p class="text-purple-200">Agent 自主决策检索 - 2024-2026 RAG 前沿技术</p>
+            <div class="mt-4 flex flex-wrap gap-3">
+                <span class="bg-white/20 px-3 py-1 rounded-full text-sm">✅ 自主决策检索</span>
+                <span class="bg-white/20 px-3 py-1 rounded-full text-sm">✅ 多轮推理</span>
+                <span class="bg-white/20 px-3 py-1 rounded-full text-sm">✅ 动态工具调用</span>
+                <span class="bg-white/20 px-3 py-1 rounded-full text-sm">✅ ReAct 模式</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-5xl mx-auto p-4 -mt-4">
+        <!-- Input Section -->
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+            <div class="flex gap-4">
+                <input 
+                    type="text" 
+                    id="queryInput" 
+                    placeholder="输入你的问题，例如：贪吃蛇如何实现 A* 寻路算法？" 
+                    class="flex-1 px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-lg"
+                >
+                <button 
+                    id="submitBtn" 
+                    onclick="executeAgenticRAG()"
+                    class="px-6 py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition-colors flex items-center gap-2"
+                >
+                    <span>🚀</span>
+                    <span>执行</span>
+                </button>
+            </div>
+            
+            <!-- Quick Examples -->
+            <div class="mt-4 flex flex-wrap gap-2">
+                <span class="text-gray-500 text-sm">快速示例：</span>
+                <button onclick="setQuery('如何优化 Bot 的 BFS 寻路效率？')" class="text-purple-600 hover:bg-purple-50 px-2 py-1 rounded text-sm">BFS优化</button>
+                <button onclick="setQuery('贪吃蛇策略和 A* 算法有什么关系？')" class="text-purple-600 hover:bg-purple-50 px-2 py-1 rounded text-sm">策略关系</button>
+                <button onclick="setQuery('帮我分析为什么我的 Bot 老是撞墙')" class="text-purple-600 hover:bg-purple-50 px-2 py-1 rounded text-sm">问题诊断</button>
+                <button onclick="setQuery('你好')" class="text-purple-600 hover:bg-purple-50 px-2 py-1 rounded text-sm">简单问候</button>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loadingState" class="hidden bg-white rounded-xl shadow-lg p-8 mb-6 text-center">
+            <div class="flex justify-center gap-2 mb-4">
+                <div class="thinking-dot w-3 h-3 bg-purple-600 rounded-full"></div>
+                <div class="thinking-dot w-3 h-3 bg-purple-600 rounded-full"></div>
+                <div class="thinking-dot w-3 h-3 bg-purple-600 rounded-full"></div>
+            </div>
+            <p class="text-gray-600">Agent 正在思考和决策中...</p>
+        </div>
+
+        <!-- Results Section -->
+        <div id="resultsSection" class="hidden">
+            <!-- Summary Stats -->
+            <div id="summaryStats" class="grid grid-cols-3 gap-4 mb-6">
+                <div class="bg-white rounded-xl shadow p-4 text-center">
+                    <div class="text-3xl font-bold text-purple-600" id="statIterations">0</div>
+                    <div class="text-gray-500 text-sm">推理迭代次数</div>
+                </div>
+                <div class="bg-white rounded-xl shadow p-4 text-center">
+                    <div class="text-3xl font-bold text-green-600" id="statLatency">0</div>
+                    <div class="text-gray-500 text-sm">延迟 (ms)</div>
+                </div>
+                <div class="bg-white rounded-xl shadow p-4 text-center">
+                    <div class="text-3xl font-bold text-blue-600" id="statDocs">0</div>
+                    <div class="text-gray-500 text-sm">检索文档数</div>
+                </div>
+            </div>
+
+            <!-- Iteration Steps -->
+            <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+                    <span>🧠</span>
+                    <span>Agent 思考过程 (ReAct)</span>
+                </h2>
+                <div id="iterationsContainer" class="space-y-4">
+                    <!-- Steps will be inserted here -->
+                </div>
+            </div>
+
+            <!-- Final Answer -->
+            <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+                    <span>💡</span>
+                    <span>最终答案</span>
+                </h2>
+                <div id="finalAnswer" class="prose max-w-none text-gray-700 leading-relaxed">
+                    <!-- Answer will be inserted here -->
+                </div>
+            </div>
+
+            <!-- Raw Response -->
+            <details class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <summary class="cursor-pointer font-semibold text-gray-700">📦 原始 JSON 响应</summary>
+                <pre id="rawResponse" class="mt-4 bg-gray-100 p-4 rounded-lg overflow-auto text-sm code-block"></pre>
+            </details>
+        </div>
+
+        <!-- Architecture Explanation -->
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+            <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+                <span>📚</span>
+                <span>Agentic RAG 架构说明</span>
+            </h2>
+            
+            <div class="grid md:grid-cols-2 gap-6">
+                <div>
+                    <h3 class="font-semibold text-gray-800 mb-2">传统 RAG 流程</h3>
+                    <div class="bg-gray-100 p-4 rounded-lg text-center">
+                        <div class="flex items-center justify-center gap-2 text-sm">
+                            <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded">Query</span>
+                            <span>→</span>
+                            <span class="bg-green-100 text-green-700 px-3 py-1 rounded">Retrieve</span>
+                            <span>→</span>
+                            <span class="bg-purple-100 text-purple-700 px-3 py-1 rounded">Generate</span>
+                        </div>
+                        <p class="text-gray-500 text-xs mt-2">固定流程，无法自适应</p>
+                    </div>
+                </div>
+                
+                <div>
+                    <h3 class="font-semibold text-gray-800 mb-2">Agentic RAG 流程</h3>
+                    <div class="bg-gradient-to-r from-purple-50 to-blue-50 p-4 rounded-lg text-center">
+                        <div class="flex items-center justify-center gap-2 text-sm flex-wrap">
+                            <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded">Query</span>
+                            <span>→</span>
+                            <span class="bg-yellow-100 text-yellow-700 px-3 py-1 rounded">Agent 决策</span>
+                            <span>→</span>
+                            <span class="bg-green-100 text-green-700 px-3 py-1 rounded">[Retrieve?]</span>
+                            <span>→</span>
+                            <span class="bg-yellow-100 text-yellow-700 px-3 py-1 rounded">循环...</span>
+                            <span>→</span>
+                            <span class="bg-purple-100 text-purple-700 px-3 py-1 rounded">Generate</span>
+                        </div>
+                        <p class="text-purple-600 text-xs mt-2">Agent 自主决定何时检索、检索什么</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-6 grid md:grid-cols-3 gap-4">
+                <div class="border rounded-lg p-4">
+                    <div class="text-2xl mb-2">🎯</div>
+                    <h4 class="font-semibold">动作类型</h4>
+                    <ul class="text-sm text-gray-600 mt-2 space-y-1">
+                        <li>• RETRIEVE - 知识库检索</li>
+                        <li>• GRAPH_SEARCH - 图谱检索</li>
+                        <li>• REFINE - 精炼结果</li>
+                        <li>• GENERATE - 生成答案</li>
+                    </ul>
+                </div>
+                <div class="border rounded-lg p-4">
+                    <div class="text-2xl mb-2">🔄</div>
+                    <h4 class="font-semibold">ReAct 模式</h4>
+                    <ul class="text-sm text-gray-600 mt-2 space-y-1">
+                        <li>• Reason - 分析思考</li>
+                        <li>• Act - 执行动作</li>
+                        <li>• Observe - 观察结果</li>
+                        <li>• 循环直到完成</li>
+                    </ul>
+                </div>
+                <div class="border rounded-lg p-4">
+                    <div class="text-2xl mb-2">✨</div>
+                    <h4 class="font-semibold">面试亮点</h4>
+                    <ul class="text-sm text-gray-600 mt-2 space-y-1">
+                        <li>• 2024-2026 主流趋势</li>
+                        <li>• RAG + Agent 融合</li>
+                        <li>• 复杂多跳推理</li>
+                        <li>• 自适应检索策略</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8080';
+        
+        function setQuery(text) {
+            document.getElementById('queryInput').value = text;
+        }
+        
+        async function executeAgenticRAG() {
+            const query = document.getElementById('queryInput').value.trim();
+            if (!query) {
+                alert('请输入问题');
+                return;
+            }
+            
+            // Show loading
+            document.getElementById('loadingState').classList.remove('hidden');
+            document.getElementById('resultsSection').classList.add('hidden');
+            document.getElementById('submitBtn').disabled = true;
+            
+            try {
+                const response = await fetch(`${API_BASE}/ai/advanced/agentic`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query })
+                });
+                
+                const data = await response.json();
+                displayResults(data);
+            } catch (error) {
+                alert('请求失败: ' + error.message + '\n\n请确保后端服务正在运行');
+            } finally {
+                document.getElementById('loadingState').classList.add('hidden');
+                document.getElementById('submitBtn').disabled = false;
+            }
+        }
+        
+        function displayResults(data) {
+            document.getElementById('resultsSection').classList.remove('hidden');
+            
+            // Update stats
+            document.getElementById('statIterations').textContent = data.totalIterations || 0;
+            document.getElementById('statLatency').textContent = data.latencyMs || 0;
+            
+            // Count docs from iterations
+            let docCount = 0;
+            if (data.iterations) {
+                data.iterations.forEach(iter => {
+                    if (iter.observation && iter.observation.includes('篇')) {
+                        const match = iter.observation.match(/(\d+)\s*篇/);
+                        if (match) docCount = Math.max(docCount, parseInt(match[1]));
+                    }
+                });
+            }
+            document.getElementById('statDocs').textContent = docCount;
+            
+            // Display iterations
+            const container = document.getElementById('iterationsContainer');
+            container.innerHTML = '';
+            
+            if (data.iterations && data.iterations.length > 0) {
+                data.iterations.forEach((iter, index) => {
+                    const actionColors = {
+                        'RETRIEVE': 'bg-green-100 text-green-700',
+                        'GRAPH_SEARCH': 'bg-blue-100 text-blue-700',
+                        'REFINE': 'bg-yellow-100 text-yellow-700',
+                        'GENERATE': 'bg-purple-100 text-purple-700',
+                        'DONE': 'bg-purple-100 text-purple-700',
+                        'WEB_SEARCH': 'bg-orange-100 text-orange-700'
+                    };
+                    
+                    const actionColor = actionColors[iter.action] || 'bg-gray-100 text-gray-700';
+                    
+                    container.innerHTML += `
+                        <div class="step-card border-l-4 border-purple-500 pl-4 py-3 bg-gray-50 rounded-r-lg">
+                            <div class="flex items-center gap-3 mb-2">
+                                <span class="w-8 h-8 bg-purple-600 text-white rounded-full flex items-center justify-center font-bold text-sm">${iter.step}</span>
+                                <span class="action-badge ${actionColor} px-3 py-1 rounded-full text-sm font-medium">${iter.action}</span>
+                                ${iter.actionInput ? `<span class="text-gray-500 text-sm">→ ${iter.actionInput}</span>` : ''}
+                            </div>
+                            ${iter.reasoning ? `
+                                <div class="mb-2">
+                                    <span class="text-gray-500 text-sm">💭 思考:</span>
+                                    <p class="text-gray-700 ml-5">${iter.reasoning}</p>
+                                </div>
+                            ` : ''}
+                            ${iter.observation ? `
+                                <div>
+                                    <span class="text-gray-500 text-sm">👁️ 观察:</span>
+                                    <p class="text-gray-600 ml-5 text-sm">${iter.observation}</p>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                });
+            } else {
+                container.innerHTML = '<p class="text-gray-500">无迭代信息</p>';
+            }
+            
+            // Display answer
+            const answerEl = document.getElementById('finalAnswer');
+            if (data.answer) {
+                // Simple markdown-like formatting
+                let formatted = data.answer
+                    .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre class="bg-gray-100 p-3 rounded my-2 overflow-auto"><code>$2</code></pre>')
+                    .replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-1 rounded">$1</code>')
+                    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\n\n/g, '</p><p class="mt-3">')
+                    .replace(/\n/g, '<br>');
+                answerEl.innerHTML = `<p>${formatted}</p>`;
+            } else {
+                answerEl.innerHTML = '<p class="text-gray-500">无答案</p>';
+            }
+            
+            // Display raw JSON
+            document.getElementById('rawResponse').textContent = JSON.stringify(data, null, 2);
+        }
+        
+        // Enter key to submit
+        document.getElementById('queryInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') executeAgenticRAG();
+        });
+    </script>
+</body>
+</html>

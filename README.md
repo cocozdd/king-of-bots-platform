@@ -1,4 +1,4 @@
-# king-of-bots-ai-showcase
+# king-of-bots-platform
 
 Public showcase of an AI-augmented King of Bots platform.
 
